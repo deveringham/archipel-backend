@@ -171,6 +171,7 @@ def handle_get_tag(tag_name):
 # Handle adding a new message to a tag (POST)
 @app.route('/msg/<tag_name>', methods=['POST'])
 def handle_add_msg(tag_name):
+    msg = request.json['text']
     result = add_msg(connection, tag_name, msg)
     response = Response()
     allow_cors(response)
@@ -187,4 +188,3 @@ def handle_get_alltags():
     response = jsonify(get_alltags(connection))
     allow_cors(response)
     return response
-    
