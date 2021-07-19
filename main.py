@@ -11,13 +11,17 @@
 ###
 # Dylan Everingham, Ben Levin
 # 18.07.21
+#
+# Flask web app for archipel - decentralized tagging of dis/interested spaces.
+#
+###
+
 ###
 # Dependencies
 ###
 from sqlalchemy import create_engine, MetaData, Table, text
 from sqlalchemy.exc import IntegrityError
 from flask import Flask, request, Response, jsonify
-import json
 
 ###
 # Constants
@@ -31,7 +35,7 @@ DB_PORT = 3306
 # Database access functions
 ###
 
-# Add tag
+# Add tag (requires tag_name and location)
 def add_tag(connection, tag_name, lat, lon):
     try:
         q = text('''INSERT INTO tags(tag_name, lat, lon)
@@ -41,9 +45,7 @@ def add_tag(connection, tag_name, lat, lon):
         return False
     return True
 
-
-
-# Add message to tag (requires tag_name, msg)
+# Add message to tag (requires tag_name and message text)
 def add_msg(connection, tag_name, msg):
     try:
         q = text('''INSERT INTO messages(tag_name, msg)
@@ -53,18 +55,18 @@ def add_msg(connection, tag_name, msg):
         return False
     return True
 
-# Get all messages, location and timestamp from a tag
+# Get all messages (with their timestamps), location and timestamp from a tag
 def get_tag(connection, tag_name):
     q = text('''SELECT lat, lon, msg, t.created_at tag_created_at, m.created_at msg_created_at
-        FROM tags t, messages m WHERE m.tag_name = t.tag_name
-        AND t.tag_name = :tag_name''')
+        FROM tags t LEFT JOIN messages m ON m.tag_name = t.tag_name
+        WHERE t.tag_name = :tag_name''')
     result = connection.execute(q, tag_name=tag_name).fetchall()
-    print(result)
     if(len(result) < 1) :
         return None
     lat, lon = result[0][0], result[0][1]
     created_at = str(result[0][3])
-    messages = [ {'text': str(row[2]), 'created_at': str(row[4])} for row in result]
+    messages = [{'text': str(row[2]), 'created_at': str(row[4])} for row in result
+        if row[2] is not None]
     return {'tag_name': tag_name, 'lat': lat, 'lon': lon, 'created_at': created_at,
         'messages': messages}
 
@@ -85,6 +87,8 @@ def clear_all(connection):
 # Util to allow sensible CORS for a response
 def allow_cors(response):
     response.headers.add("Vary", "Origin")
+    if request.origin == None:
+        return
     if "localhost" in request.origin:
         response.headers.add('Access-Control-Allow-Origin', 'http://localhost:8000')
     else:
@@ -94,6 +98,7 @@ def allow_cors(response):
 ###
 # Main routine
 ###
+
 # Create sqlalchemy engine
 engine = create_engine('mysql://' + DB_USER +
     ':' + DB_PASS +
@@ -101,13 +106,12 @@ engine = create_engine('mysql://' + DB_USER +
     '/' + DB_NAME)
 connection = engine.connect()
 
-#with engine.connect() as connection:
-
 # Select the archipel db
 connection.execute(text('USE archipel'))
+
 # Delete tables
-connection.execute(text('DROP TABLE IF EXISTS messages'))
-connection.execute(text('DROP TABLE IF EXISTS tags'))
+#connection.execute(text('DROP TABLE IF EXISTS messages'))
+#connection.execute(text('DROP TABLE IF EXISTS tags'))
 
 # Initialize timezone for timestamp columns
 connection.execute(text('SET time_zone = \'+00:00\''))
@@ -115,12 +119,12 @@ connection.execute(text('SET time_zone = \'+00:00\''))
 # Create tables, if they don't already exist
 connection.execute(text('''CREATE TABLE IF NOT EXISTS tags
     (tag_name VARCHAR(25) PRIMARY KEY,
-    lat DOUBLE, lon DOUBLE,
+    lat DOUBLE NOT NULL, lon DOUBLE NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)'''))
 connection.execute(text('''CREATE TABLE IF NOT EXISTS messages
     (msg_id INT AUTO_INCREMENT PRIMARY KEY,
     tag_name VARCHAR(25),
-    msg VARCHAR(255),
+    msg VARCHAR(255) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (tag_name) REFERENCES tags(tag_name) ON DELETE CASCADE)'''))
 
@@ -164,7 +168,7 @@ def handle_get_tag(tag_name):
     allow_cors(response)
     return response
 
-# Handle adding a new message to a tag
+# Handle adding a new message to a tag (POST)
 @app.route('/msg/<tag_name>', methods=['POST'])
 def handle_add_msg(tag_name):
     result = add_msg(connection, tag_name, msg)
@@ -177,9 +181,10 @@ def handle_add_msg(tag_name):
         response.status_code = 403
         return response
 
-# Handle getting all tags
+# Handle getting all tags (GET)
 @app.route('/alltags', methods=['GET'])
 def handle_get_alltags():
     response = jsonify(get_alltags(connection))
     allow_cors(response)
     return response
+    
