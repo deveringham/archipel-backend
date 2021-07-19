@@ -87,6 +87,7 @@ def clear_all(connection):
 # Util to allow sensible CORS for a response
 def allow_cors(response):
     response.headers.add("Vary", "Origin")
+    response.headers.add("Access-Control-Allow-Headers", "Content-Type")
     if request.origin == None:
         return
     if "localhost" in request.origin:
@@ -132,11 +133,10 @@ connection.execute(text('''CREATE TABLE IF NOT EXISTS messages
 #clear_all(connection)
 
 # Add some test junk to DB
-add_tag(connection, 'test', 52.520008, 13.404954)
-add_msg(connection, 'test', 'test_msg_0')
-add_msg(connection, 'test', 'test_msg_1')
-
-add_tag(connection, 'test2', 52.52, 13.41)
+# add_tag(connection, 'test', 52.520008, 13.404954)
+# add_msg(connection, 'test', 'test_msg_0')
+#add_msg(connection, 'test', 'test_msg_1')
+#add_tag(connection, 'test2', 52.52, 13.41)
 
 print(get_alltags(connection))
 print(get_tag(connection, 'test'))
@@ -169,17 +169,23 @@ def handle_get_tag(tag_name):
     return response
 
 # Handle adding a new message to a tag (POST)
-@app.route('/msg/<tag_name>', methods=['POST'])
+@app.route('/msg/<tag_name>', methods=['POST', 'OPTIONS'])
 def handle_add_msg(tag_name):
-    msg = request.json['text']
-    result = add_msg(connection, tag_name, msg)
-    response = Response()
-    allow_cors(response)
-    if result:
-        response.status_code = 200
-        return response
-    else:
-        response.status_code = 403
+    if request.method == 'POST':
+        msg = request.json['text']
+        result = add_msg(connection, tag_name, msg)
+        if result:
+            tag = get_tag(connection, tag_name)
+            response = jsonify(tag)
+            allow_cors(response)
+            return response
+        else:
+            response.status_code = 403
+            return response
+    elif request.method == 'OPTIONS':
+        response = Response()
+        allow_cors(response)
+        response.content_type = "application/json"
         return response
 
 # Handle getting all tags (GET)
